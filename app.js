@@ -1,0 +1,420 @@
+'use strict';
+
+/* ================================================================
+ * 纯逻辑部分（不依赖 DOM，可在 Node 中直接测试）
+ * ================================================================ */
+
+/** Minecraft 单位：1 组 = 64 个，1 潜影盒 = 27 组 = 1728 个 */
+const MINECRAFT = { STACK: 64, SHULKER_STACKS: 27 };
+MINECRAFT.SHULKER = MINECRAFT.STACK * MINECRAFT.SHULKER_STACKS;
+
+/**
+ * 解析 CSV 文本。
+ * 支持：引号包裹的字段（含内部逗号）、"" 转义、BOM、CRLF、空行。
+ */
+function parseCSV(text) {
+  const src = String(text).replace(/^\uFEFF/, '');
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(field);
+      field = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && src[i + 1] === '\n') i++;
+      row.push(field);
+      field = '';
+      if (row.some((f) => String(f).trim() !== '')) rows.push(row);
+      row = [];
+    } else {
+      field += c;
+    }
+  }
+  if (field !== '' || row.length > 0) {
+    row.push(field);
+    if (row.some((f) => String(f).trim() !== '')) rows.push(row);
+  }
+  return rows;
+}
+
+/** 将字段清洗为整数；无法解析返回 null */
+function toInt(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? Math.trunc(v) : null;
+  const digits = String(v).replace(/\D/g, '');
+  return digits === '' ? null : parseInt(digits, 10);
+}
+
+/**
+ * 从解析出的行中提取材料列表。
+ * 只读取前三列：Item / Total / Missing；
+ * Available 列（第 4 列）及其后任何多余字段（如 "0.68 SB"）一律忽略。
+ * 表头行（Total 不是数字）自动跳过。
+ */
+function toItems(rows) {
+  const items = [];
+  for (const f of rows) {
+    if (!Array.isArray(f) || f.length < 3) continue;
+    const name = String(f[0]).trim();
+    const total = toInt(f[1]);
+    const missing = toInt(f[2]);
+    if (!name || total === null || missing === null) continue;
+    items.push({
+      name,
+      total,
+      missing,
+      stacks: Math.ceil(missing / MINECRAFT.STACK),
+      shulker: Math.ceil(missing / MINECRAFT.SHULKER),
+    });
+  }
+  return items;
+}
+
+/** 汇总统计 */
+function summarize(items) {
+  const missing = items.reduce((s, i) => s + i.missing, 0);
+  const total = items.reduce((s, i) => s + i.total, 0);
+  return {
+    kinds: items.length,
+    missing,
+    stacks: Math.ceil(missing / MINECRAFT.STACK),
+    shulker: Math.ceil(missing / MINECRAFT.SHULKER),
+    donePct: total > 0 ? Math.round((1 - missing / total) * 100) : null,
+  };
+}
+
+/** 千分位格式化 */
+function fmt(n) {
+  return Number(n).toLocaleString('zh-CN');
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { MINECRAFT, parseCSV, toItems, summarize, fmt };
+}
+
+/* ================================================================
+ * DOM 部分（仅在浏览器中运行）
+ * ================================================================ */
+
+if (typeof document !== 'undefined') {
+  document.documentElement.classList.add('js');
+  document.addEventListener('DOMContentLoaded', init);
+}
+
+function init() {
+  const $ = (sel) => document.querySelector(sel);
+
+  const dropzone = $('#dropzone');
+  const fileInput = $('#fileInput');
+  const pastePanel = $('#pastePanel');
+  const pasteArea = $('#pasteArea');
+  const errorBox = $('#errorBox');
+  const result = $('#result');
+  const fileNameEl = $('#fileName');
+  const statKinds = $('#statKinds');
+  const statMissing = $('#statMissing');
+  const statStacks = $('#statStacks');
+  const statShulker = $('#statShulker');
+  const statDone = $('#statDone');
+  const searchInput = $('#search');
+  const sortSelect = $('#sort');
+  const countLine = $('#countLine');
+  const grid = $('#grid');
+
+  let allItems = [];
+  let query = '';
+  let sortKey = 'missing';
+
+  /* ---------------- 预览图 ---------------- */
+
+  let previewMap = {};
+  fetch('previews.json', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : {}))
+    .then((m) => {
+      previewMap = m && typeof m === 'object' ? m : {};
+      if (allItems.length) renderGrid();
+    })
+    .catch(() => {});
+
+  /**
+   * 图片候选顺序：
+   * 1. previews.json 中为该材料配置的图片（相对 images/ 或外链）；
+   * 2. 默认约定 images/<材料名>.png / .webp / .jpg / .jpeg。
+   */
+  function imageCandidates(item) {
+    const mapped = previewMap[item.name];
+    if (typeof mapped === 'string' && mapped.trim()) {
+      const v = mapped.trim();
+      return /^(https?:|data:)/i.test(v) ? [v] : ['images/' + v];
+    }
+    const base = 'images/' + encodeURIComponent(item.name);
+    return [base + '.png', base + '.webp', base + '.jpg', base + '.jpeg'];
+  }
+
+  /** 生成缩略图：有图显示图，无图显示首字占位块 */
+  function createThumb(item) {
+    const wrap = document.createElement('div');
+    wrap.className = 'thumb';
+
+    const img = document.createElement('img');
+    img.alt = '';
+
+    const mono = document.createElement('span');
+    mono.className = 'monogram';
+    mono.textContent = Array.from(item.name)[0] || '?';
+    mono.hidden = true;
+
+    wrap.append(img, mono);
+
+    const candidates = imageCandidates(item);
+    let idx = 0;
+    (function tryNext() {
+      if (idx >= candidates.length) {
+        img.remove();
+        mono.hidden = false;
+        return;
+      }
+      img.onerror = () => { img.onerror = null; tryNext(); };
+      img.src = candidates[idx++];
+    })();
+
+    return wrap;
+  }
+
+  /* ---------------- 渲染 ---------------- */
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  function visibleItems() {
+    const q = query.trim();
+    const list = q ? allItems.filter((i) => i.name.includes(q)) : allItems.slice();
+    if (sortKey === 'name') {
+      list.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+    } else if (sortKey === 'total') {
+      list.sort((a, b) => b.total - a.total || b.missing - a.missing);
+    } else {
+      list.sort((a, b) => b.missing - a.missing || a.name.localeCompare(b.name, 'zh-CN'));
+    }
+    return list;
+  }
+
+  function renderGrid() {
+    const list = visibleItems();
+    grid.innerHTML = '';
+
+    if (!list.length) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = query.trim() ? `没有匹配「${query.trim()}」的材料` : '没有材料数据';
+      grid.appendChild(li);
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
+    list.forEach((item, i) => {
+      const li = document.createElement('li');
+      li.className = 'card';
+      li.style.setProperty('--index', Math.min(i, 12));
+
+      const top = document.createElement('div');
+      top.className = 'card-top';
+      top.appendChild(createThumb(item));
+
+      const info = document.createElement('div');
+      const nameEl = document.createElement('h3');
+      nameEl.className = 'card-name';
+      nameEl.textContent = item.name;
+      const meta = document.createElement('p');
+      meta.className = 'card-meta';
+      meta.textContent = `总量 ${fmt(item.total)}`;
+      info.append(nameEl, meta);
+      top.appendChild(info);
+
+      const foot = document.createElement('div');
+      foot.className = 'card-foot';
+      const cells = [
+        [fmt(item.missing), '缺口 · 个'],
+        [`${item.stacks} 组`, '64 个/组 · 上取整'],
+        [`${item.shulker} 盒`, '27 组/盒 · 上取整'],
+      ];
+      for (const [num, lbl] of cells) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        const numEl = document.createElement('span');
+        numEl.className = 'num';
+        numEl.textContent = num;
+        const lblEl = document.createElement('span');
+        lblEl.className = 'lbl';
+        lblEl.textContent = lbl;
+        cell.append(numEl, lblEl);
+        foot.appendChild(cell);
+      }
+
+      li.append(top, foot);
+      frag.appendChild(li);
+    });
+    grid.appendChild(frag);
+  }
+
+  /** 数字滚动动画 */
+  function countUp(el, target) {
+    const start = performance.now();
+    const dur = 480;
+    (function step(now) {
+      const p = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = fmt(Math.round(target * eased));
+      if (p < 1) requestAnimationFrame(step);
+    })(start);
+  }
+
+  function renderStats() {
+    const s = summarize(allItems);
+    countUp(statKinds, s.kinds);
+    countUp(statMissing, s.missing);
+    countUp(statStacks, s.stacks);
+    countUp(statShulker, s.shulker);
+    statDone.textContent = s.donePct === null ? '—' : s.donePct + '%';
+    countLine.textContent = `共 ${allItems.length} 种材料`;
+  }
+
+  function showResult(fileName) {
+    dropzone.style.display = 'none';
+    pastePanel.hidden = true;
+    errorBox.classList.remove('show');
+    fileNameEl.textContent = fileName;
+    result.classList.add('show');
+    renderStats();
+    renderGrid();
+  }
+
+  function showError(message) {
+    result.classList.remove('show');
+    pastePanel.hidden = true;
+    errorBox.textContent = message;
+    errorBox.classList.add('show');
+  }
+
+  function reset() {
+    allItems = [];
+    query = '';
+    searchInput.value = '';
+    sortSelect.value = 'missing';
+    result.classList.remove('show');
+    errorBox.classList.remove('show');
+    dropzone.style.display = '';
+  }
+
+  function parseAndRender(text, fileName) {
+    try {
+      const rows = parseCSV(text);
+      const items = toItems(rows);
+      if (!items.length) throw new Error('没有从 CSV 中解析到任何材料数据，请检查文件内容与格式。');
+      allItems = items;
+      showResult(fileName);
+    } catch (err) {
+      showError(`解析失败：${err.message}`);
+    }
+  }
+
+  async function loadFile(file) {
+    try {
+      const text = await file.text();
+      parseAndRender(text, file.name || 'materials.csv');
+    } catch (err) {
+      showError(`读取文件失败：${err.message}`);
+    }
+  }
+
+  /* ---------------- 事件 ---------------- */
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fileInput.click();
+    }
+  });
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files && fileInput.files[0]) loadFile(fileInput.files[0]);
+    fileInput.value = '';
+  });
+
+  ['dragover', 'drop'].forEach((ev) =>
+    document.addEventListener(ev, (e) => e.preventDefault())
+  );
+  dropzone.addEventListener('dragover', () => dropzone.classList.add('drag'));
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+  dropzone.addEventListener('drop', (e) => {
+    dropzone.classList.remove('drag');
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) loadFile(file);
+  });
+
+  $('#pickBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    fileInput.click();
+  });
+  $('#pasteBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    pastePanel.hidden = false;
+    pasteArea.focus();
+  });
+  $('#cancelPasteBtn').addEventListener('click', () => {
+    pastePanel.hidden = true;
+    pasteArea.value = '';
+  });
+  $('#parsePasteBtn').addEventListener('click', () => {
+    const text = pasteArea.value.trim();
+    if (!text) return;
+    parseAndRender(text, '粘贴的 CSV');
+  });
+  pasteArea.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      $('#parsePasteBtn').click();
+    }
+  });
+
+  searchInput.addEventListener('input', () => {
+    query = searchInput.value;
+    renderGrid();
+  });
+  sortSelect.addEventListener('change', () => {
+    sortKey = sortSelect.value;
+    renderGrid();
+  });
+  $('#resetBtn').addEventListener('click', reset);
+
+  /* ---------------- 滚动入场（IntersectionObserver） ---------------- */
+
+  const io = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          e.target.classList.add('in');
+          io.unobserve(e.target);
+        }
+      });
+    },
+    { threshold: 0.12 }
+  );
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+}
