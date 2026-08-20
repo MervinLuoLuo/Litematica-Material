@@ -1,1 +1,22 @@
-{}
+{
+    "石头按钮": "https://zh.minecraft.wiki/images/Invicon_Stone_Button.png?6906e",
+    "凋灵玫瑰": "https://zh.minecraft.wiki/images/Wither_Rose_JE1_BE3.png?c7ce9&format=original",
+    "红石中继器": "https://zh.minecraft.wiki/images/Invicon_Redstone_Repeater.png?371ea",
+    "泥土": "https://zh.minecraft.wiki/images/Dirt_JE2_BE2.png?a4b3d&format=original",
+    "侦测器": "https://zh.minecraft.wiki/images/Observer_JE4.png?c2e8f",
+    "平滑石头台阶": "https://zh.minecraft.wiki/images/Smooth_Stone_Slab_JE2_BE2.png?85d12",
+    "白色染色玻璃": "https://zh.minecraft.wiki/images/White_Stained_Glass_JE3_BE3.png?67a1d",
+    "黏性活塞": "https://zh.minecraft.wiki/images/Sticky_Piston_%28U%29_JE4.png?c9282",
+    "活塞": "https://zh.minecraft.wiki/images/Piston_%28U%29_JE4.png?fa472",
+    "黑曜石": "https://zh.minecraft.wiki/images/Obsidian_JE3_BE2.png?31e17",
+    "樱花木活板门": "https://zh.minecraft.wiki/images/Cherry_Trapdoor_JE1_BE1.png?71c46",
+    "平滑石头": "https://zh.minecraft.wiki/images/Smooth_Stone_JE2_BE2.png?b4e5e",
+    "动力铁轨": "https://zh.minecraft.wiki/images/Invicon_Powered_Rail.png?f9b59",
+    "圆石墙": "https://zh.minecraft.wiki/images/Cobblestone_Wall_%28ewU%29_JE8.png?9946a",
+    "红石粉": "https://zh.minecraft.wiki/images/Redstone_Dust_JE2_BE2.png?030c0",
+    "音符盒": "https://zh.minecraft.wiki/images/Note_Block_JE2_BE2.png?1f613",
+    "拉杆": "https://zh.minecraft.wiki/images/Invicon_Lever.png?5c5a8",
+    "竹告示牌": "https://zh.minecraft.wiki/images/Invicon_Bamboo_Sign.png?58994",
+    "红石火把": "https://zh.minecraft.wiki/images/Invicon_Redstone_Torch.png?1ec05",
+    "草方块": "https://zh.minecraft.wiki/images/Grass_Block_JE7_BE6.png?d27c1"
+}
