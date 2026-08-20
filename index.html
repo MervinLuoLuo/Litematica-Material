@@ -60,7 +60,7 @@
       <div class="stat"><span class="num" id="statKinds">0</span><span class="lbl">材料种类</span></div>
       <div class="stat"><span class="num" id="statMissing">0</span><span class="lbl">缺口总计 · 个</span></div>
       <div class="stat"><span class="num" id="statStacks">0</span><span class="lbl">约需组数 · 上取整</span></div>
-      <div class="stat"><span class="num" id="statShulker">0</span><span class="lbl">约需潜影盒 · 上取整</span></div>
+      <div class="stat"><span class="num num-sm" id="statShulker">0 盒 0 组</span><span class="lbl">潜影盒 + 余组 · 下取整</span></div>
       <div class="stat"><span class="num" id="statDone">—</span><span class="lbl">完成度</span></div>
     </div>
 
@@ -79,14 +79,14 @@
 
   <section class="notes reveal">
     <h2>单位与预览图</h2>
-    <p>1 组 = 64 个，1 个潜影盒 = 27 组（1728 个）。所有组数与盒数均向上取整。</p>
+    <p>1 组 = 64 个，1 个潜影盒 = 27 组（1728 个）。组数向上取整；盒数向下取整并显示余下的组数，例如 30 组写作「1 盒 3 组」。</p>
     <p>材料预览图放在站点根目录的 <code>images/</code> 文件夹中，文件名与 CSV 中的材料名一致即可自动显示，例如 <code>images/石头按钮.png</code>。也支持用 <code>previews.json</code> 自定义映射或外链地址，没有图片的材料会显示首字占位块。详细说明见 <code>README.md</code>。</p>
   </section>
 
 </main>
 
 <footer class="site-footer reveal">
-  <div class="wrap">1 组 = 64 个 · 1 盒 = 27 组 · 全部结果向上取整</div>
+  <div class="wrap">1 组 = 64 个 · 1 盒 = 27 组 · 组数上取整 · 盒数下取整并显示余组</div>
 </footer>
 
 <noscript><p style="text-align:center;padding:24px;color:#787774">本页面需要启用 JavaScript 才能运行。</p></noscript>

@@ -9,6 +9,23 @@ const MINECRAFT = { STACK: 64, SHULKER_STACKS: 27 };
 MINECRAFT.SHULKER = MINECRAFT.STACK * MINECRAFT.SHULKER_STACKS;
 
 /**
+ * 把组数折算为「盒 + 余组」：盒数向下取整，余组 = 组数 mod 27。
+ * 例：30 组 → 1 盒 3 组；9 组 → 0 盒 9 组。
+ */
+function toBoxes(stacks) {
+  return {
+    shulker: Math.floor(stacks / MINECRAFT.SHULKER_STACKS),
+    remainderStacks: stacks % MINECRAFT.SHULKER_STACKS,
+  };
+}
+
+/** 例如 30 组 → "1 盒 3 组"，9 组 → "0 盒 9 组" */
+function boxLabel(stacks) {
+  const b = toBoxes(stacks);
+  return `${b.shulker} 盒 ${b.remainderStacks} 组`;
+}
+
+/**
  * 解析 CSV 文本。
  * 支持：引号包裹的字段（含内部逗号）、"" 转义、BOM、CRLF、空行。
  */
@@ -71,13 +88,8 @@ function toItems(rows) {
     const total = toInt(f[1]);
     const missing = toInt(f[2]);
     if (!name || total === null || missing === null) continue;
-    items.push({
-      name,
-      total,
-      missing,
-      stacks: Math.ceil(missing / MINECRAFT.STACK),
-      shulker: Math.ceil(missing / MINECRAFT.SHULKER),
-    });
+    const stacks = Math.ceil(missing / MINECRAFT.STACK);
+    items.push({ name, total, missing, stacks, ...toBoxes(stacks) });
   }
   return items;
 }
@@ -86,11 +98,12 @@ function toItems(rows) {
 function summarize(items) {
   const missing = items.reduce((s, i) => s + i.missing, 0);
   const total = items.reduce((s, i) => s + i.total, 0);
+  const stacks = Math.ceil(missing / MINECRAFT.STACK);
   return {
     kinds: items.length,
     missing,
-    stacks: Math.ceil(missing / MINECRAFT.STACK),
-    shulker: Math.ceil(missing / MINECRAFT.SHULKER),
+    stacks,
+    ...toBoxes(stacks),
     donePct: total > 0 ? Math.round((1 - missing / total) * 100) : null,
   };
 }
@@ -101,7 +114,7 @@ function fmt(n) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { MINECRAFT, parseCSV, toItems, summarize, fmt };
+  module.exports = { MINECRAFT, parseCSV, toItems, summarize, toBoxes, boxLabel, fmt };
 }
 
 /* ================================================================
@@ -251,7 +264,7 @@ function init() {
       const cells = [
         [fmt(item.missing), '缺口 · 个'],
         [`${item.stacks} 组`, '64 个/组 · 上取整'],
-        [`${item.shulker} 盒`, '27 组/盒 · 上取整'],
+        [boxLabel(item.stacks), '27 组/盒 · 下取整'],
       ];
       for (const [num, lbl] of cells) {
         const cell = document.createElement('div');
@@ -272,14 +285,15 @@ function init() {
     grid.appendChild(frag);
   }
 
-  /** 数字滚动动画 */
-  function countUp(el, target) {
+  /** 数字滚动动画；format 可自定义显示格式 */
+  function countUp(el, target, format) {
     const start = performance.now();
     const dur = 480;
     (function step(now) {
       const p = Math.min(1, (now - start) / dur);
       const eased = 1 - Math.pow(1 - p, 3);
-      el.textContent = fmt(Math.round(target * eased));
+      const val = Math.round(target * eased);
+      el.textContent = format ? format(val) : fmt(val);
       if (p < 1) requestAnimationFrame(step);
     })(start);
   }
@@ -289,7 +303,7 @@ function init() {
     countUp(statKinds, s.kinds);
     countUp(statMissing, s.missing);
     countUp(statStacks, s.stacks);
-    countUp(statShulker, s.shulker);
+    countUp(statShulker, s.stacks, boxLabel);
     statDone.textContent = s.donePct === null ? '—' : s.donePct + '%';
     countLine.textContent = `共 ${allItems.length} 种材料`;
   }
