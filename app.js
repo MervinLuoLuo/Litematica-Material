@@ -75,10 +75,21 @@ function toInt(v) {
 }
 
 /**
+ * 解析 Available 列（已有数量）。
+ * 兼容 "0, 0.68 SB" 这类带附加标注的字段：取第一个逗号前的内容中的整数。
+ */
+function toAvailable(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : 0;
+  const first = String(v).split(',')[0];
+  const m = first.match(/\d+/);
+  return m ? parseInt(m[0], 10) : 0;
+}
+
+/**
  * 从解析出的行中提取材料列表。
- * 只读取前三列：Item / Total / Missing；
- * Available 列（第 4 列）及其后任何多余字段（如 "0.68 SB"）一律忽略。
- * 表头行（Total 不是数字）自动跳过。
+ * 读取前四列：Item / Total / Missing / Available；
+ * 还需准备的数量 = Missing − Available（不小于 0），后续所有换算都基于它。
+ * 第 4 列之后的多余字段（如 "0.68 SB"）一律忽略；表头行（Total 不是数字）自动跳过。
  */
 function toItems(rows) {
   const items = [];
@@ -88,23 +99,25 @@ function toItems(rows) {
     const total = toInt(f[1]);
     const missing = toInt(f[2]);
     if (!name || total === null || missing === null) continue;
-    const stacks = Math.ceil(missing / MINECRAFT.STACK);
-    items.push({ name, total, missing, stacks, ...toBoxes(stacks) });
+    const available = toAvailable(f[3]);
+    const need = Math.max(0, missing - available);
+    const stacks = Math.ceil(need / MINECRAFT.STACK);
+    items.push({ name, total, missing, available, need, stacks, ...toBoxes(stacks) });
   }
   return items;
 }
 
-/** 汇总统计 */
+/** 汇总统计（基于需准备数量 need） */
 function summarize(items) {
-  const missing = items.reduce((s, i) => s + i.missing, 0);
+  const need = items.reduce((s, i) => s + i.need, 0);
   const total = items.reduce((s, i) => s + i.total, 0);
-  const stacks = Math.ceil(missing / MINECRAFT.STACK);
+  const stacks = Math.ceil(need / MINECRAFT.STACK);
   return {
     kinds: items.length,
-    missing,
+    need,
     stacks,
     ...toBoxes(stacks),
-    donePct: total > 0 ? Math.round((1 - missing / total) * 100) : null,
+    donePct: total > 0 ? Math.round((1 - need / total) * 100) : null,
   };
 }
 
@@ -114,7 +127,7 @@ function fmt(n) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { MINECRAFT, parseCSV, toItems, summarize, toBoxes, boxLabel, fmt };
+  module.exports = { MINECRAFT, parseCSV, toItems, summarize, toBoxes, boxLabel, toAvailable, fmt };
 }
 
 /* ================================================================
@@ -148,7 +161,7 @@ function init() {
 
   let allItems = [];
   let query = '';
-  let sortKey = 'missing';
+  let sortKey = 'need';
 
   /* ---------------- 预览图 ---------------- */
 
@@ -220,9 +233,9 @@ function init() {
     if (sortKey === 'name') {
       list.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
     } else if (sortKey === 'total') {
-      list.sort((a, b) => b.total - a.total || b.missing - a.missing);
+      list.sort((a, b) => b.total - a.total || b.need - a.need);
     } else {
-      list.sort((a, b) => b.missing - a.missing || a.name.localeCompare(b.name, 'zh-CN'));
+      list.sort((a, b) => b.need - a.need || a.name.localeCompare(b.name, 'zh-CN'));
     }
     return list;
   }
@@ -255,14 +268,14 @@ function init() {
       nameEl.textContent = item.name;
       const meta = document.createElement('p');
       meta.className = 'card-meta';
-      meta.textContent = `总量 ${fmt(item.total)}`;
+      meta.textContent = `缺口 ${fmt(item.missing)} · 已有 ${fmt(item.available)}`;
       info.append(nameEl, meta);
       top.appendChild(info);
 
       const foot = document.createElement('div');
       foot.className = 'card-foot';
       const cells = [
-        [fmt(item.missing), '缺口 · 个'],
+        [fmt(item.need), '需准备 · 个'],
         [`${item.stacks} 组`, '64 个/组 · 上取整'],
         [boxLabel(item.stacks), '27 组/盒 · 下取整'],
       ];
@@ -301,7 +314,7 @@ function init() {
   function renderStats() {
     const s = summarize(allItems);
     countUp(statKinds, s.kinds);
-    countUp(statMissing, s.missing);
+    countUp(statMissing, s.need);
     countUp(statStacks, s.stacks);
     countUp(statShulker, s.stacks, boxLabel);
     statDone.textContent = s.donePct === null ? '—' : s.donePct + '%';
@@ -329,7 +342,7 @@ function init() {
     allItems = [];
     query = '';
     searchInput.value = '';
-    sortSelect.value = 'missing';
+    sortSelect.value = 'need';
     result.classList.remove('show');
     errorBox.classList.remove('show');
     dropzone.style.display = '';

@@ -29,7 +29,7 @@
       <path d="M56 208h144"></path>
     </svg>
     <p class="main">把 Litematica 导出的材料 CSV 拖到这里</p>
-    <p class="hint">仅读取 Item / Total / Missing 三列 · Available 及多余字段将被忽略</p>
+    <p class="hint">需准备数 = Missing − Available · 其余字段将被忽略</p>
     <div class="actions">
       <button type="button" id="pickBtn" class="btn">选择 CSV 文件</button>
       <button type="button" id="pasteBtn" class="btn ghost">粘贴 CSV 文本</button>
@@ -58,7 +58,7 @@
 
     <div class="stats">
       <div class="stat"><span class="num" id="statKinds">0</span><span class="lbl">材料种类</span></div>
-      <div class="stat"><span class="num" id="statMissing">0</span><span class="lbl">缺口总计 · 个</span></div>
+      <div class="stat"><span class="num" id="statMissing">0</span><span class="lbl">需准备总计 · 个</span></div>
       <div class="stat"><span class="num" id="statStacks">0</span><span class="lbl">约需组数 · 上取整</span></div>
       <div class="stat"><span class="num num-sm" id="statShulker">0 盒 0 组</span><span class="lbl">潜影盒 + 余组 · 下取整</span></div>
       <div class="stat"><span class="num" id="statDone">—</span><span class="lbl">完成度</span></div>
@@ -67,7 +67,7 @@
     <div class="controls">
       <input type="search" id="search" placeholder="搜索材料名称…" autocomplete="off">
       <select id="sort" aria-label="排序方式">
-        <option value="missing">缺口从多到少</option>
+        <option value="need">需准备从多到少</option>
         <option value="total">总量从多到少</option>
         <option value="name">按名称排序</option>
       </select>
