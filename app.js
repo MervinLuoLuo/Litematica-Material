@@ -175,12 +175,14 @@ function init() {
   const statShulker = $('#statShulker');
   const statDone = $('#statDone');
   const searchInput = $('#search');
+  const filterSelect = $('#filter');
   const sortSelect = $('#sort');
   const countLine = $('#countLine');
   const grid = $('#grid');
 
   let allItems = [];
   let query = '';
+  let filterKey = 'all';
   let sortKey = 'need';
 
   /* ---------------- 预览图 ---------------- */
@@ -261,6 +263,11 @@ function init() {
     }
   }
 
+  /** 判断材料是否视为收集完成（手动勾选或需准备为 0 自动完成） */
+  function isItemDone(item) {
+    return item.need === 0 || doneSet.has(item.name);
+  }
+
   /** 切换某张卡片的完成状态（背景变浅绿）；需准备为 0 的材料自动完成，不可取消 */
   function toggleDone(li, item) {
     if (item.need === 0) return;
@@ -282,7 +289,12 @@ function init() {
 
   function visibleItems() {
     const q = query.trim();
-    const list = q ? allItems.filter((i) => i.name.includes(q)) : allItems.slice();
+    let list = q ? allItems.filter((i) => i.name.includes(q)) : allItems.slice();
+    if (filterKey === 'done') {
+      list = list.filter((i) => isItemDone(i));
+    } else if (filterKey === 'undone') {
+      list = list.filter((i) => !isItemDone(i));
+    }
     if (sortKey === 'name') {
       list.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
     } else if (sortKey === 'total') {
@@ -295,12 +307,15 @@ function init() {
 
   function renderGrid() {
     const list = visibleItems();
+    countLine.textContent = `共 ${list.length} 种材料`;
     grid.innerHTML = '';
 
     if (!list.length) {
       const li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = query.trim() ? `没有匹配「${query.trim()}」的材料` : '没有材料数据';
+      li.textContent = query.trim()
+        ? `没有匹配「${query.trim()}」的材料`
+        : (filterKey !== 'all' ? '没有符合条件的材料' : '没有材料数据');
       grid.appendChild(li);
       return;
     }
@@ -326,7 +341,7 @@ function init() {
       top.appendChild(info);
 
       const autoDone = item.need === 0;              // 需准备为 0 → 自动视为收集完成
-      const isDone = doneSet.has(item.name) || autoDone;
+      const isDone = isItemDone(item);
 
       const check = document.createElement('button');
       check.type = 'button';
@@ -390,7 +405,6 @@ function init() {
     countUp(statStacks, s.stacks, formatStacks, 0.5);
     countUp(statShulker, s.stacks, boxLabel, 0.5);
     statDone.textContent = s.donePct === null ? '—' : s.donePct + '%';
-    countLine.textContent = `共 ${allItems.length} 种材料`;
   }
 
   function showResult(fileName) {
@@ -414,6 +428,8 @@ function init() {
     allItems = [];
     query = '';
     searchInput.value = '';
+    filterSelect.value = 'all';
+    filterKey = 'all';
     sortSelect.value = 'need';
     result.classList.remove('show');
     errorBox.classList.remove('show');
@@ -498,6 +514,10 @@ function init() {
   });
   sortSelect.addEventListener('change', () => {
     sortKey = sortSelect.value;
+    renderGrid();
+  });
+  filterSelect.addEventListener('change', () => {
+    filterKey = filterSelect.value;
     renderGrid();
   });
   $('#resetBtn').addEventListener('click', reset);
