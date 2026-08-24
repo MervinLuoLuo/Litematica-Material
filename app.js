@@ -261,8 +261,9 @@ function init() {
     }
   }
 
-  /** 切换某张卡片的完成状态（背景变浅绿） */
+  /** 切换某张卡片的完成状态（背景变浅绿）；需准备为 0 的材料自动完成，不可取消 */
   function toggleDone(li, item) {
+    if (item.need === 0) return;
     const isDone = li.classList.toggle('done');
     const btn = li.querySelector('.check');
     if (btn) btn.setAttribute('aria-pressed', String(isDone));
@@ -324,11 +325,14 @@ function init() {
       info.append(nameEl, meta);
       top.appendChild(info);
 
+      const autoDone = item.need === 0;              // 需准备为 0 → 自动视为收集完成
+      const isDone = doneSet.has(item.name) || autoDone;
+
       const check = document.createElement('button');
       check.type = 'button';
       check.className = 'check';
       check.setAttribute('aria-label', `标记 ${item.name} 收集完成`);
-      check.setAttribute('aria-pressed', String(doneSet.has(item.name)));
+      check.setAttribute('aria-pressed', String(isDone));
       check.innerHTML = CHECK_SVG;
       check.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -337,7 +341,8 @@ function init() {
       top.appendChild(check);
 
       li.addEventListener('click', () => toggleDone(li, item));
-      if (doneSet.has(item.name)) li.classList.add('done');
+      if (isDone) li.classList.add('done');
+      if (autoDone) li.classList.add('auto-done');
 
       const foot = document.createElement('div');
       foot.className = 'card-foot';
