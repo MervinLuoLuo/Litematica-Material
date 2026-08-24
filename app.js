@@ -162,13 +162,19 @@ if (typeof document !== 'undefined') {
 function init() {
   const $ = (sel) => document.querySelector(sel);
 
+  /* ---------------- 元素引用 ---------------- */
+
+  const errorBox = $('#errorBox');
   const dropzone = $('#dropzone');
   const fileInput = $('#fileInput');
-  const pastePanel = $('#pastePanel');
-  const pasteArea = $('#pasteArea');
-  const errorBox = $('#errorBox');
   const result = $('#result');
-  const fileNameEl = $('#fileName');
+  const archiveSelect = $('#archiveSelect');
+  const newArchiveBtn = $('#newArchiveBtn');
+  const archiveNameEl = $('#archiveName');
+  const archiveDescEl = $('#archiveDesc');
+  const editArchiveBtn = $('#editArchiveBtn');
+  const deleteArchiveBtn = $('#deleteArchiveBtn');
+  const modeBadge = $('#modeBadge');
   const statKinds = $('#statKinds');
   const statMissing = $('#statMissing');
   const statStacks = $('#statStacks');
@@ -179,12 +185,184 @@ function init() {
   const sortSelect = $('#sort');
   const countLine = $('#countLine');
   const grid = $('#grid');
+  const modalOverlay = $('#modalOverlay');
+  const modalTitle = $('#modalTitle');
+  const modalName = $('#modalName');
+  const modalDesc = $('#modalDesc');
+  const modalCsv = $('#modalCsv');
+  const modalError = $('#modalError');
+  const modalUploadBtn = $('#modalUploadBtn');
+  const modalFileInput = $('#modalFileInput');
+  const modalCancelBtn = $('#modalCancelBtn');
+  const modalSaveBtn = $('#modalSaveBtn');
 
+  /* ---------------- 状态 ---------------- */
+
+  const LAST_KEY = 'litematica-last-archive'; // 仅记录上次打开的档案 id（偏好，非业务数据）
+
+  let archives = [];
+  let currentArchive = null; // 当前档案（含 csv / done）
   let allItems = [];
   let query = '';
   let filterKey = 'all';
   let sortKey = 'need';
-  let instantRender = false;   // 勾选切换时跳过入场动画
+  let doneSet = new Set();
+  let editingId = null;
+
+  /* ---------------- 存储层（服务器 / 本地降级） ---------------- */
+
+  /**
+   * API 地址配置（优先级：URL 参数 ?api= > window.API_BASE / window.__API_BASE__ > 同源 ''）
+   * 例如把前端部署在 GitHub Pages、后端部署在云服务时：
+   *   访问地址带 ?api=https://your-app.onrender.com
+   *   或在加载 app.js 前设置 window.API_BASE = 'https://your-app.onrender.com'
+   */
+  const API_BASE = (function () {
+    const fromQuery = new URLSearchParams(location.search).get('api');
+    const base = fromQuery || window.__API_BASE__ || window.API_BASE || '';
+    return base.replace(/\/+$/, '');
+  })();
+
+  const LOCAL_KEY = 'litematica-archives-local'; // 静态托管（如 GitHub Pages）时的本地档案存储
+
+  function localLoad() {
+    try {
+      const raw = localStorage.getItem(LOCAL_KEY);
+      const data = raw ? JSON.parse(raw) : [];
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function localSave(list) {
+    try {
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(list));
+    } catch (e) {
+      /* 存储不可用时静默忽略 */
+    }
+  }
+
+  function localId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  async function serverFetch(path, options = {}) {
+    const res = await fetch(API_BASE + path, options);
+    if (!res.ok) {
+      let msg = `请求失败（${res.status}）`;
+      try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) { /* 忽略 */ }
+      throw new Error(msg);
+    }
+    return res.json();
+  }
+
+  /** 档案存储抽象：同一套接口，服务器可用走服务器，否则降级到 localStorage */
+  const storage = {
+    mode: 'server', // 'server' | 'local'
+
+    async list() {
+      if (this.mode === 'local') {
+        return localLoad().map(({ csv, done, ...rest }) => rest);
+      }
+      return serverFetch('/api/archives');
+    },
+
+    async get(id) {
+      if (this.mode === 'local') {
+        const a = localLoad().find((x) => x.id === id);
+        if (!a) throw new Error('档案不存在');
+        return a;
+      }
+      return serverFetch(`/api/archives/${encodeURIComponent(id)}`);
+    },
+
+    async create(data) {
+      if (this.mode === 'local') {
+        const list = localLoad();
+        const archive = {
+          id: localId(),
+          name: data.name,
+          description: data.description || '',
+          csv: data.csv,
+          done: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        list.push(archive);
+        localSave(list);
+        return archive;
+      }
+      return serverFetch('/api/archives', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+    },
+
+    async update(id, data) {
+      if (this.mode === 'local') {
+        const list = localLoad();
+        const a = list.find((x) => x.id === id);
+        if (!a) throw new Error('档案不存在');
+        Object.assign(a, data, { updatedAt: Date.now() });
+        localSave(list);
+        return a;
+      }
+      return serverFetch(`/api/archives/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+    },
+
+    async remove(id) {
+      if (this.mode === 'local') {
+        localSave(localLoad().filter((x) => x.id !== id));
+        return { ok: true };
+      }
+      return serverFetch(`/api/archives/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    },
+
+    async setDone(id, done) {
+      if (this.mode === 'local') {
+        const list = localLoad();
+        const a = list.find((x) => x.id === id);
+        if (!a) throw new Error('档案不存在');
+        a.done = done;
+        a.updatedAt = Date.now();
+        localSave(list);
+        return { ok: true, done };
+      }
+      return serverFetch(`/api/archives/${encodeURIComponent(id)}/done`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ done }),
+      });
+    },
+  };
+
+  /** 探测后端是否可用：可用 → 服务器模式；否则自动降级为本地存储模式 */
+  async function detectMode() {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 3000);
+      const res = await fetch(API_BASE + '/api/archives', { signal: ctrl.signal, cache: 'no-store' });
+      clearTimeout(timer);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) {
+        storage.mode = 'server';
+        return true;
+      }
+      throw new Error('接口不可用');
+    } catch (e) {
+      storage.mode = 'local';
+      return false;
+    }
+  }
 
   /* ---------------- 预览图 ---------------- */
 
@@ -193,15 +371,11 @@ function init() {
     .then((r) => (r.ok ? r.json() : {}))
     .then((m) => {
       previewMap = m && typeof m === 'object' ? m : {};
-      if (allItems.length) renderGrid();
+      if (allItems.length) renderGrid({ moves: true });
     })
     .catch(() => {});
 
-  /**
-   * 图片候选顺序：
-   * 1. previews.json 中为该材料配置的图片（相对 images/ 或外链）；
-   * 2. 默认约定 images/<材料名>.png / .webp / .jpg / .jpeg。
-   */
+  /** 图片候选顺序：previews.json 映射 → images/<材料名>.png/.webp/.jpg/.jpeg */
   function imageCandidates(item) {
     const mapped = previewMap[item.name];
     if (typeof mapped === 'string' && mapped.trim()) {
@@ -242,51 +416,36 @@ function init() {
     return wrap;
   }
 
-  /* ---------------- 收集完成勾选 ---------------- */
+  /* ---------------- 收集完成（同步到服务器） ---------------- */
 
-  const DONE_KEY = 'litematica-material-done';
   const CHECK_SVG =
     '<svg viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M52 136l56 56 96-120"></path></svg>';
-
-  let doneSet = new Set();
-  try {
-    const raw = localStorage.getItem(DONE_KEY);
-    if (raw) doneSet = new Set(JSON.parse(raw));
-  } catch (e) {
-    doneSet = new Set();
-  }
-
-  function saveDone() {
-    try {
-      localStorage.setItem(DONE_KEY, JSON.stringify([...doneSet]));
-    } catch (e) {
-      /* 存储不可用时静默忽略 */
-    }
-  }
 
   /** 判断材料是否视为收集完成（手动勾选或需准备为 0 自动完成） */
   function isItemDone(item) {
     return item.need === 0 || doneSet.has(item.name);
   }
 
-  /** 切换某张卡片的完成状态（背景变浅绿）；需准备为 0 的材料自动完成，不可取消 */
+  /** 切换完成状态：立即更新界面，异步同步到服务器 */
   function toggleDone(item) {
     if (item.need === 0) return;
     if (doneSet.has(item.name)) doneSet.delete(item.name);
     else doneSet.add(item.name);
     saveDone();
-    instantRender = true;
-    renderGrid();
-    instantRender = false;
+    renderGrid({ moves: true });
+  }
+
+  async function saveDone() {
+    if (!currentArchive) return;
+    try {
+      await storage.setDone(currentArchive.id, [...doneSet]);
+      hideError();
+    } catch (e) {
+      showError(`同步收集进度失败：${e.message}`);
+    }
   }
 
   /* ---------------- 渲染 ---------------- */
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => (
-      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-    ));
-  }
 
   function visibleItems() {
     const q = query.trim();
@@ -309,7 +468,18 @@ function init() {
       .concat(list.filter((i) => isItemDone(i)));
   }
 
-  function renderGrid() {
+  /**
+   * 渲染材料网格。
+   * moves=true 时使用 FLIP 动画平滑过渡（勾选沉底、搜索、排序、筛选）。
+   */
+  function renderGrid({ moves = false } = {}) {
+    const prev = new Map();
+    if (moves) {
+      grid.querySelectorAll('.card').forEach((el) => {
+        prev.set(el.dataset.name, el.getBoundingClientRect().top);
+      });
+    }
+
     const list = visibleItems();
     countLine.textContent = `共 ${list.length} 种材料`;
     grid.innerHTML = '';
@@ -328,7 +498,8 @@ function init() {
     list.forEach((item, i) => {
       const li = document.createElement('li');
       li.className = 'card';
-      if (instantRender) li.classList.add('instant');
+      li.dataset.name = item.name;
+      if (moves) li.classList.add('instant');
       else li.style.setProperty('--index', Math.min(i, 12));
 
       const top = document.createElement('div');
@@ -388,6 +559,21 @@ function init() {
       frag.appendChild(li);
     });
     grid.appendChild(frag);
+
+    /* FLIP：把每张卡片从旧位置平滑过渡到新位置 */
+    if (moves) {
+      grid.querySelectorAll('.card').forEach((el) => {
+        const from = prev.get(el.dataset.name);
+        if (from === undefined) return;
+        const dy = from - el.getBoundingClientRect().top;
+        if (dy === 0) return;
+        el.style.transform = `translateY(${dy}px)`;
+        el.getBoundingClientRect(); // 强制回流，确保初始位移生效
+        el.style.transition = 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)';
+        el.style.transform = '';
+        el.addEventListener('transitionend', () => { el.style.transition = ''; }, { once: true });
+      });
+    }
   }
 
   /** 数字滚动动画；format 可自定义显示格式，step 为递增步长（如 0.5） */
@@ -412,53 +598,178 @@ function init() {
     statDone.textContent = s.donePct === null ? '—' : s.donePct + '%';
   }
 
-  function showResult(fileName) {
+  /* ---------------- 视图切换 ---------------- */
+
+  function showResult() {
     dropzone.style.display = 'none';
-    pastePanel.hidden = true;
-    errorBox.classList.remove('show');
-    fileNameEl.textContent = fileName;
+    archiveNameEl.textContent = currentArchive.name;
+    archiveDescEl.textContent = currentArchive.description || '';
+    archiveDescEl.hidden = !currentArchive.description;
     result.classList.add('show');
     renderStats();
     renderGrid();
   }
 
-  function showError(message) {
+  function showEmpty() {
     result.classList.remove('show');
-    pastePanel.hidden = true;
+    dropzone.style.display = '';
+    allItems = [];
+    currentArchive = null;
+    doneSet = new Set();
+  }
+
+  function showError(message) {
     errorBox.textContent = message;
     errorBox.classList.add('show');
   }
 
-  function reset() {
-    allItems = [];
-    query = '';
-    searchInput.value = '';
-    filterSelect.value = 'all';
-    filterKey = 'all';
-    sortSelect.value = 'need';
-    result.classList.remove('show');
+  function hideError() {
     errorBox.classList.remove('show');
-    dropzone.style.display = '';
   }
 
-  function parseAndRender(text, fileName) {
-    try {
-      const rows = parseCSV(text);
-      const items = toItems(rows);
-      if (!items.length) throw new Error('没有从 CSV 中解析到任何材料数据，请检查文件内容与格式。');
-      allItems = items;
-      showResult(fileName);
-    } catch (err) {
-      showError(`解析失败：${err.message}`);
+  /* ---------------- 档案管理 ---------------- */
+
+  function renderArchiveSelect(selectedId) {
+    archiveSelect.innerHTML = '';
+    if (!archives.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '暂无档案';
+      archiveSelect.appendChild(opt);
+      archiveSelect.disabled = true;
+      return;
+    }
+    archiveSelect.disabled = false;
+    for (const a of archives) {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = a.name;
+      if (a.id === selectedId) opt.selected = true;
+      archiveSelect.appendChild(opt);
     }
   }
 
-  async function loadFile(file) {
+  async function refreshArchiveList(selectedId) {
     try {
-      const text = await file.text();
-      parseAndRender(text, file.name || 'materials.csv');
-    } catch (err) {
-      showError(`读取文件失败：${err.message}`);
+      archives = await storage.list();
+      renderArchiveSelect(selectedId);
+    } catch (e) {
+      showError(`获取档案列表失败：${e.message}`);
+    }
+  }
+
+  function parseItems(text) {
+    const rows = parseCSV(text);
+    const items = toItems(rows);
+    if (!items.length) throw new Error('没有从 CSV 中解析到任何材料数据，请检查内容格式');
+    return items;
+  }
+
+  async function selectArchive(id) {
+    try {
+      const a = await storage.get(id);
+      currentArchive = a;
+      doneSet = new Set(a.done || []);
+      allItems = parseItems(a.csv);
+      localStorage.setItem(LAST_KEY, id);
+      hideError();
+      showResult();
+    } catch (e) {
+      showError(`加载档案失败：${e.message}`);
+    }
+  }
+
+  async function initArchives() {
+    const isServer = await detectMode();
+    modeBadge.textContent = isServer ? '服务器模式' : '本地模式';
+    modeBadge.classList.toggle('local', !isServer);
+    modeBadge.hidden = false;
+    try {
+      archives = await storage.list();
+      renderArchiveSelect(null);
+      const urlId = new URLSearchParams(location.search).get('a');
+      let target = urlId || localStorage.getItem(LAST_KEY) || '';
+      if (!archives.some((a) => a.id === target)) {
+        target = archives.length ? archives[0].id : '';
+      }
+      if (target) {
+        renderArchiveSelect(target);
+        await selectArchive(target);
+      } else {
+        showEmpty();
+      }
+    } catch (e) {
+      showError(
+        storage.mode === 'local'
+          ? `读取本地档案失败：${e.message}`
+          : `无法连接服务器：${e.message}。已切换为本地模式，数据仅保存在当前浏览器。`
+      );
+    }
+  }
+
+  /* ---------------- 档案弹窗 ---------------- */
+
+  function openModal(prefill = {}) {
+    editingId = prefill.id || null;
+    modalTitle.textContent = editingId ? '编辑档案' : '新建档案';
+    modalName.value = prefill.name || '';
+    modalDesc.value = prefill.description || '';
+    modalCsv.value = prefill.csv || '';
+    modalError.hidden = true;
+    modalOverlay.hidden = false;
+    modalName.focus();
+  }
+
+  function closeModal() {
+    modalOverlay.hidden = true;
+    editingId = null;
+  }
+
+  function showModalError(message) {
+    modalError.textContent = message;
+    modalError.hidden = false;
+  }
+
+  async function saveModal() {
+    const name = modalName.value.trim();
+    const csv = modalCsv.value.trim();
+    const description = modalDesc.value.trim();
+    if (!name) { showModalError('请填写档案名'); modalName.focus(); return; }
+    if (!csv) { showModalError('请填写 CSV 内容（可粘贴或上传文件）'); modalCsv.focus(); return; }
+    try {
+      parseItems(csv);
+    } catch (e) {
+      showModalError(e.message);
+      return;
+    }
+
+    try {
+      let id = editingId;
+      if (id) {
+        await storage.update(id, { name, csv, description });
+      } else {
+        const created = await storage.create({ name, csv, description });
+        id = created.id;
+      }
+      closeModal();
+      hideError();
+      await refreshArchiveList(id);
+      await selectArchive(id);
+    } catch (e) {
+      showModalError(`保存失败：${e.message}`);
+    }
+  }
+
+  async function deleteCurrent() {
+    if (!currentArchive) return;
+    if (!window.confirm(`确定删除档案「${currentArchive.name}」吗？删除后无法恢复。`)) return;
+    try {
+      await storage.remove(currentArchive.id);
+      localStorage.removeItem(LAST_KEY);
+      showEmpty();
+      await refreshArchiveList(null);
+    } catch (e) {
+      showError(`删除档案失败：${e.message}`);
     }
   }
 
@@ -472,8 +783,18 @@ function init() {
     }
   });
 
+  async function readFileIntoModal(file) {
+    try {
+      const text = await file.text();
+      const base = (file.name || '').replace(/\.[^.]+$/, '');
+      openModal({ name: base, csv: text });
+    } catch (e) {
+      showError(`读取文件失败：${e.message}`);
+    }
+  }
+
   fileInput.addEventListener('change', () => {
-    if (fileInput.files && fileInput.files[0]) loadFile(fileInput.files[0]);
+    if (fileInput.files && fileInput.files[0]) readFileIntoModal(fileInput.files[0]);
     fileInput.value = '';
   });
 
@@ -485,7 +806,7 @@ function init() {
   dropzone.addEventListener('drop', (e) => {
     dropzone.classList.remove('drag');
     const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (file) loadFile(file);
+    if (file) readFileIntoModal(file);
   });
 
   $('#pickBtn').addEventListener('click', (e) => {
@@ -494,38 +815,51 @@ function init() {
   });
   $('#pasteBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    pastePanel.hidden = false;
-    pasteArea.focus();
+    openModal();
+    modalCsv.focus();
   });
-  $('#cancelPasteBtn').addEventListener('click', () => {
-    pastePanel.hidden = true;
-    pasteArea.value = '';
+
+  newArchiveBtn.addEventListener('click', () => openModal());
+  archiveSelect.addEventListener('change', () => {
+    if (archiveSelect.value) selectArchive(archiveSelect.value);
   });
-  $('#parsePasteBtn').addEventListener('click', () => {
-    const text = pasteArea.value.trim();
-    if (!text) return;
-    parseAndRender(text, '粘贴的 CSV');
+  editArchiveBtn.addEventListener('click', () => {
+    if (!currentArchive) return;
+    openModal({
+      id: currentArchive.id,
+      name: currentArchive.name,
+      description: currentArchive.description,
+      csv: currentArchive.csv,
+    });
   });
-  pasteArea.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      $('#parsePasteBtn').click();
-    }
+  deleteArchiveBtn.addEventListener('click', deleteCurrent);
+
+  modalCancelBtn.addEventListener('click', closeModal);
+  modalSaveBtn.addEventListener('click', saveModal);
+  modalUploadBtn.addEventListener('click', () => modalFileInput.click());
+  modalFileInput.addEventListener('change', () => {
+    if (modalFileInput.files && modalFileInput.files[0]) readFileIntoModal(modalFileInput.files[0]);
+    modalFileInput.value = '';
+  });
+  modalOverlay.addEventListener('click', (e) => {
+    if (e.target === modalOverlay) closeModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modalOverlay.hidden) closeModal();
   });
 
   searchInput.addEventListener('input', () => {
     query = searchInput.value;
-    renderGrid();
+    renderGrid({ moves: true });
   });
   sortSelect.addEventListener('change', () => {
     sortKey = sortSelect.value;
-    renderGrid();
+    renderGrid({ moves: true });
   });
   filterSelect.addEventListener('change', () => {
     filterKey = filterSelect.value;
-    renderGrid();
+    renderGrid({ moves: true });
   });
-  $('#resetBtn').addEventListener('click', reset);
 
   /* ---------------- 滚动入场（IntersectionObserver） ---------------- */
 
@@ -541,4 +875,8 @@ function init() {
     { threshold: 0.12 }
   );
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  /* ---------------- 启动 ---------------- */
+
+  initArchives();
 }

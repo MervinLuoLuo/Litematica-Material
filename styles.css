@@ -390,6 +390,160 @@ code {
   color: var(--ink-soft);
 }
 
+/* ---------- 档案工具条（右上角） ---------- */
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.archive-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-left: auto;
+  padding-top: 8px;
+}
+.archive-controls select {
+  height: 40px;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  cursor: pointer;
+}
+.archive-controls select:focus { outline: none; border-color: var(--ink); }
+.archive-controls select:disabled { color: var(--ink-soft); cursor: default; }
+.mode-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  border: 1px solid #D8E4D4;
+  background: #EDF3EC;
+  color: #346538;
+  white-space: nowrap;
+}
+.mode-badge.local {
+  border-color: #EDE3C4;
+  background: #FBF3DB;
+  color: #956400;
+}
+
+/* ---------- 档案信息 ---------- */
+.archive-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 26px;
+}
+.archive-info .kicker { margin-bottom: 8px; }
+.archive-info h2 {
+  font-family: var(--serif);
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  word-break: break-all;
+}
+.archive-desc {
+  margin-top: 10px;
+  max-width: 640px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--ink-soft);
+}
+.archive-actions { display: flex; gap: 10px; }
+
+.btn.danger {
+  background: transparent;
+  color: var(--pale-red-ink);
+  border-color: #F3D8D9;
+}
+.btn.danger:hover {
+  background: var(--pale-red-bg);
+  border-color: var(--pale-red-ink);
+}
+
+/* ---------- 档案弹窗 ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(28, 28, 26, 0.38);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.modal {
+  width: 100%;
+  max-width: 660px;
+  max-height: 92vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 32px;
+}
+.modal h2 {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+.modal label {
+  display: block;
+  margin-top: 18px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.modal input[type="text"],
+.modal textarea {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 14px;
+  font-family: var(--sans);
+  resize: vertical;
+}
+.modal textarea {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.modal input:focus,
+.modal textarea:focus { outline: none; border-color: var(--ink); }
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+.modal-spacer { flex: 1; }
+.modal-error {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--pale-red-ink);
+}
+
 /* ---------- 入场动画（仅在 JS 启用时生效） ---------- */
 .js .reveal {
   opacity: 0;
@@ -412,6 +566,9 @@ code {
     margin-top: 6px;
     border-top: 1px solid var(--line);
   }
+  .archive-controls { width: 100%; }
+  .archive-controls select { flex: 1; min-width: 0; max-width: none; }
+  .modal { padding: 24px 20px; }
 }
 @media (max-width: 480px) {
   .grid { grid-template-columns: 1fr; }
