@@ -276,6 +276,7 @@ button { font-family: inherit; }
 }
 .card.done .card-name { color: #346538; }
 .card.auto-done { cursor: default; }
+.card.instant { animation: none; opacity: 1; }
 .card:hover {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
   transform: translateY(-1px);

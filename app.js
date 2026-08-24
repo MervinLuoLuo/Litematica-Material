@@ -184,6 +184,7 @@ function init() {
   let query = '';
   let filterKey = 'all';
   let sortKey = 'need';
+  let instantRender = false;   // 勾选切换时跳过入场动画
 
   /* ---------------- 预览图 ---------------- */
 
@@ -269,14 +270,14 @@ function init() {
   }
 
   /** 切换某张卡片的完成状态（背景变浅绿）；需准备为 0 的材料自动完成，不可取消 */
-  function toggleDone(li, item) {
+  function toggleDone(item) {
     if (item.need === 0) return;
-    const isDone = li.classList.toggle('done');
-    const btn = li.querySelector('.check');
-    if (btn) btn.setAttribute('aria-pressed', String(isDone));
-    if (isDone) doneSet.add(item.name);
-    else doneSet.delete(item.name);
+    if (doneSet.has(item.name)) doneSet.delete(item.name);
+    else doneSet.add(item.name);
     saveDone();
+    instantRender = true;
+    renderGrid();
+    instantRender = false;
   }
 
   /* ---------------- 渲染 ---------------- */
@@ -302,7 +303,10 @@ function init() {
     } else {
       list.sort((a, b) => b.need - a.need || a.name.localeCompare(b.name, 'zh-CN'));
     }
-    return list;
+    // 已收集完成的材料固定排到列表最下方（组内保持相对顺序）
+    return list
+      .filter((i) => !isItemDone(i))
+      .concat(list.filter((i) => isItemDone(i)));
   }
 
   function renderGrid() {
@@ -324,7 +328,8 @@ function init() {
     list.forEach((item, i) => {
       const li = document.createElement('li');
       li.className = 'card';
-      li.style.setProperty('--index', Math.min(i, 12));
+      if (instantRender) li.classList.add('instant');
+      else li.style.setProperty('--index', Math.min(i, 12));
 
       const top = document.createElement('div');
       top.className = 'card-top';
@@ -351,11 +356,11 @@ function init() {
       check.innerHTML = CHECK_SVG;
       check.addEventListener('click', (e) => {
         e.stopPropagation();
-        toggleDone(li, item);
+        toggleDone(item);
       });
       top.appendChild(check);
 
-      li.addEventListener('click', () => toggleDone(li, item));
+      li.addEventListener('click', () => toggleDone(item));
       if (isDone) li.classList.add('done');
       if (autoDone) li.classList.add('auto-done');
 
