@@ -19,10 +19,30 @@ function toBoxes(stacks) {
   };
 }
 
-/** 例如 30 组 → "1 盒 3 组"，9 组 → "0 盒 9 组" */
+/**
+ * 组数按 0.5 步长取整：64 为 1 组，96 为 1.5 组，128 为 2 组。
+ * 规则：整组 = floor(n ÷ 64)；余数 r = n mod 64：
+ *   r = 0      → 不加
+ *   0 < r ≤ 32 → +0.5 组
+ *   r > 32     → +1 组
+ * 例：385 → 6.5 组；112 → 2 组。
+ */
+function stacksOf(need) {
+  const whole = Math.floor(need / MINECRAFT.STACK);
+  const rem = need % MINECRAFT.STACK;
+  const extra = rem === 0 ? 0 : (rem <= MINECRAFT.STACK / 2 ? 0.5 : 1);
+  return whole + extra;
+}
+
+/** 组数显示：整数不带小数，半组显示一位小数（如 6.5） */
+function formatStacks(n) {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+/** 例如 30 组 → "1 盒 3 组"，30.5 组 → "1 盒 3.5 组"，9 组 → "0 盒 9 组" */
 function boxLabel(stacks) {
   const b = toBoxes(stacks);
-  return `${b.shulker} 盒 ${b.remainderStacks} 组`;
+  return `${b.shulker} 盒 ${formatStacks(b.remainderStacks)} 组`;
 }
 
 /**
@@ -101,7 +121,7 @@ function toItems(rows) {
     if (!name || total === null || missing === null) continue;
     const available = toAvailable(f[3]);
     const need = Math.max(0, missing - available);
-    const stacks = Math.ceil(need / MINECRAFT.STACK);
+    const stacks = stacksOf(need);
     items.push({ name, total, missing, available, need, stacks, ...toBoxes(stacks) });
   }
   return items;
@@ -111,7 +131,7 @@ function toItems(rows) {
 function summarize(items) {
   const need = items.reduce((s, i) => s + i.need, 0);
   const total = items.reduce((s, i) => s + i.total, 0);
-  const stacks = Math.ceil(need / MINECRAFT.STACK);
+  const stacks = stacksOf(need);
   return {
     kinds: items.length,
     need,
@@ -127,7 +147,7 @@ function fmt(n) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { MINECRAFT, parseCSV, toItems, summarize, toBoxes, boxLabel, toAvailable, fmt };
+  module.exports = { MINECRAFT, parseCSV, toItems, summarize, toBoxes, boxLabel, toAvailable, stacksOf, formatStacks, fmt };
 }
 
 /* ================================================================
@@ -219,6 +239,38 @@ function init() {
     return wrap;
   }
 
+  /* ---------------- 收集完成勾选 ---------------- */
+
+  const DONE_KEY = 'litematica-material-done';
+  const CHECK_SVG =
+    '<svg viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M52 136l56 56 96-120"></path></svg>';
+
+  let doneSet = new Set();
+  try {
+    const raw = localStorage.getItem(DONE_KEY);
+    if (raw) doneSet = new Set(JSON.parse(raw));
+  } catch (e) {
+    doneSet = new Set();
+  }
+
+  function saveDone() {
+    try {
+      localStorage.setItem(DONE_KEY, JSON.stringify([...doneSet]));
+    } catch (e) {
+      /* 存储不可用时静默忽略 */
+    }
+  }
+
+  /** 切换某张卡片的完成状态（背景变浅绿） */
+  function toggleDone(li, item) {
+    const isDone = li.classList.toggle('done');
+    const btn = li.querySelector('.check');
+    if (btn) btn.setAttribute('aria-pressed', String(isDone));
+    if (isDone) doneSet.add(item.name);
+    else doneSet.delete(item.name);
+    saveDone();
+  }
+
   /* ---------------- 渲染 ---------------- */
 
   function escapeHtml(s) {
@@ -272,11 +324,26 @@ function init() {
       info.append(nameEl, meta);
       top.appendChild(info);
 
+      const check = document.createElement('button');
+      check.type = 'button';
+      check.className = 'check';
+      check.setAttribute('aria-label', `标记 ${item.name} 收集完成`);
+      check.setAttribute('aria-pressed', String(doneSet.has(item.name)));
+      check.innerHTML = CHECK_SVG;
+      check.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleDone(li, item);
+      });
+      top.appendChild(check);
+
+      li.addEventListener('click', () => toggleDone(li, item));
+      if (doneSet.has(item.name)) li.classList.add('done');
+
       const foot = document.createElement('div');
       foot.className = 'card-foot';
       const cells = [
         [fmt(item.need), '需准备 · 个'],
-        [`${item.stacks} 组`, '64 个/组 · 上取整'],
+        [`${formatStacks(item.stacks)} 组`, '64 个/组 · 0.5 步取整'],
         [boxLabel(item.stacks), '27 组/盒 · 下取整'],
       ];
       for (const [num, lbl] of cells) {
@@ -298,16 +365,16 @@ function init() {
     grid.appendChild(frag);
   }
 
-  /** 数字滚动动画；format 可自定义显示格式 */
-  function countUp(el, target, format) {
+  /** 数字滚动动画；format 可自定义显示格式，step 为递增步长（如 0.5） */
+  function countUp(el, target, format, step = 1) {
     const start = performance.now();
     const dur = 480;
-    (function step(now) {
+    (function stepFn(now) {
       const p = Math.min(1, (now - start) / dur);
       const eased = 1 - Math.pow(1 - p, 3);
-      const val = Math.round(target * eased);
+      const val = Math.round((target * eased) / step) * step;
       el.textContent = format ? format(val) : fmt(val);
-      if (p < 1) requestAnimationFrame(step);
+      if (p < 1) requestAnimationFrame(stepFn);
     })(start);
   }
 
@@ -315,8 +382,8 @@ function init() {
     const s = summarize(allItems);
     countUp(statKinds, s.kinds);
     countUp(statMissing, s.need);
-    countUp(statStacks, s.stacks);
-    countUp(statShulker, s.stacks, boxLabel);
+    countUp(statStacks, s.stacks, formatStacks, 0.5);
+    countUp(statShulker, s.stacks, boxLabel, 0.5);
     statDone.textContent = s.donePct === null ? '—' : s.donePct + '%';
     countLine.textContent = `共 ${allItems.length} 种材料`;
   }
