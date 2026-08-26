@@ -681,7 +681,7 @@ function init() {
 
   async function initArchives() {
     const isServer = await detectMode();
-    modeBadge.textContent = isServer ? '服务器模式' : '本地模式';
+    modeBadge.textContent = isServer ? '服务端缓存模式' : '本地缓存模式';
     modeBadge.classList.toggle('local', !isServer);
     modeBadge.hidden = false;
     try {
